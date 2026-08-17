@@ -1,0 +1,10 @@
+{
+  "name": "iman-reports-bot",
+  "version": "1.0.0",
+  "description": "Kunlik murojaat hisobotlarini qabul qilib, top mavzularni % da hisoblab beruvchi Telegram bot",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}

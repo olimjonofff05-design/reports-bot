@@ -1,6 +1,6 @@
 import { sendMessage } from "../lib/telegram.js";
 import { looksLikeReport, parseReport } from "../lib/parser.js";
-import { insertReport } from "../lib/supabase.js";
+import { insertReport, markReacted } from "../lib/supabase.js";
 import { buildReport } from "../lib/report.js";
 
 export default async function handler(req, res) {
@@ -17,6 +17,17 @@ export default async function handler(req, res) {
 
   try {
     const update = req.body;
+
+    // --- Xabarga bosilgan/olib tashlangan reaktsiya ---
+    // Buni olish uchun bot guruhda ADMIN bo'lishi va webhook
+    // allowed_updates ro'yxatida "message_reaction" bo'lishi shart
+    // (README'dagi 6-qadamga qarang).
+    if (update.message_reaction) {
+      await handleReaction(update.message_reaction);
+      res.status(200).send("OK");
+      return;
+    }
+
     const message = update.message;
 
     if (!message || !message.text || message.from?.is_bot) {
@@ -54,6 +65,7 @@ export default async function handler(req, res) {
       const parsed = parseReport(text);
       await insertReport({
         chatId,
+        messageId: message.message_id,
         employeeName: parsed.employeeName,
         conversationsCount: parsed.conversationsCount,
         topicText: parsed.topicText,
@@ -67,4 +79,22 @@ export default async function handler(req, res) {
     console.error("Webhook error:", err);
     res.status(200).send("OK");
   }
+}
+
+// Telegram "message_reaction" update'i:
+// { chat, message_id, date, old_reaction: [...], new_reaction: [...] }
+// new_reaction bo'sh bo'lsa — foydalanuvchi reaktsiyani olib tashlagan.
+async function handleReaction(reaction) {
+  const chatId = reaction.chat?.id;
+  const messageId = reaction.message_id;
+  if (!chatId || !messageId) return;
+
+  const newReaction = reaction.new_reaction || [];
+  const reacted = newReaction.length > 0;
+  const emojiList = newReaction
+    .map((r) => r.emoji || r.custom_emoji_id || r.type)
+    .filter(Boolean)
+    .join(",");
+
+  await markReacted(chatId, messageId, reacted, emojiList);
 }

@@ -17,11 +17,23 @@ Telegram → Vercel /api/webhook
         └─ Bor bo'lsa: ism, suhbatlar soni, "Top mavzu" matni ajratib olinadi
            va Supabase'ga jimgina saqlanadi (guruhga javob yozilmaydi).
 
+Xuddi shu xabarga reaktsiya bosilsa/olinsa
+        │
+        ▼
+Telegram → Vercel /api/webhook (message_reaction)
+        │
+        └─ Supabase'dagi shu yozuv "reacted = true/false" qilib yangilanadi.
+
 /hisobot bugun | hafta | oy | "01.08.2026 15.08.2026"
         │
         ▼
-Supabase'dan shu davrdagi hisobotlar olinadi → jamlanadi → TOP 5 mavzu
-foiz bilan hisoblanadi → guruhga chiroyli formatda javob yoziladi.
+Supabase'dan shu davrdagi hisobotlar olinadi → jamlanadi → reaktsiyasiz qolganlar
+soni va barcha mavzular foiz bilan hisoblanadi → guruhga chiroyli formatda javob yoziladi.
+
+Har kuni 00:00 (Vercel Cron)
+        │
+        ▼
+/api/cleanup → Supabase'dagi 2 oydan katta yozuvlar o'chiriladi.
 ```
 
 ## 1-qadam: Yangi Telegram bot yaratish
@@ -70,22 +82,47 @@ git push -u origin main
 
 ## 6-qadam: Webhookni ulash
 
-Brauzerda oching (TOKEN va domeningizni almashtiring):
+Brauzerda oching (TOKEN va domeningizni almashtiring). `allowed_updates`ga e'tibor
+bering — u bo'lmasa, bot reaktsiyalar haqida umuman xabar olmaydi:
 ```
-https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<domeningiz>.vercel.app/api/webhook&secret_token=<SECRET>
+https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<domeningiz>.vercel.app/api/webhook&secret_token=<SECRET>&allowed_updates=["message","message_reaction"]
 ```
 
-## 7-qadam: Botni guruhga qo'shish
+## 7-qadam: Botni guruhga qo'shish va ADMIN qilish
 
-Botni guruhingizga oddiy a'zo sifatida qo'shing (admin qilish shart emas — Privacy Mode
-o'chirilgan bo'lsa, oddiy a'zolik yetarli).
+Botni guruhingizga qo'shing.
+
+⚠️ **Reaktsiyalarni kuzatish uchun bot ADMIN bo'lishi SHART.** Oddiy a'zolikda Telegram
+reaktsiya update'larini botga umuman yubormaydi — bu Telegram'ning o'z cheklovi, koddagi
+sozlamaga bog'liq emas. Guruh a'zolari ro'yxatidan botni administrator qiling (maxsus
+huquqlar berish shart emas — faqat administrator ro'yxatida bo'lishi kifoya).
+
+## 8-qadam: CRON_SECRET (avtomatik tozalash uchun)
+
+Vercel loyihasiga yana bitta Environment Variable qo'shing: `CRON_SECRET` (istalgan uzun
+tasodifiy qator, masalan parol generatoridan). Vercel buni `/api/cleanup`ga har kunlik
+chaqiruvda avtomatik `Authorization: Bearer <CRON_SECRET>` header'i sifatida qo'shadi —
+shu orqali bu endpoint faqat Vercel Cron'dan chaqirilishini ta'minlaymiz.
 
 ## Foydalanish
 
 - Guruhda kimdir "Top mavzu: ..." formatidagi hisobot yuborsa — bot uni jimgina qabul qiladi.
+- Kimdir shu xabarga Telegram reaktsiya (❤️👍✅ va h.k.) qo'ysa — bot buni ham jimgina
+  qayd etadi (bot guruhda ADMIN bo'lishi shart, 7-qadamga qarang).
 - Istalgan vaqt: `/hisobot bugun`, `/hisobot hafta`, `/hisobot oy`, yoki
-  `/hisobot 01.08.2026 15.08.2026` — shu davr uchun jami murojaatlar va TOP 5 mavzu
-  foiz bilan chiqadi.
+  `/hisobot 01.08.2026 15.08.2026` — shu davr uchun jami murojaatlar, reaktsiyasiz qolgan
+  hisobotlar soni va **barcha** aniqlangan mavzular foiz bilan (cheklovsiz) chiqadi.
+
+## Eski ma'lumotlarni avtomatik o'chirish
+
+Bazada joy band bo'lib qolmasligi uchun `daily_reports` jadvalidagi **2 oydan katta**
+yozuvlar avtomatik o'chiriladi. Buni Vercel Cron (`vercel.json`dagi `crons`) har kuni
+soat 00:00'da `/api/cleanup` endpoint'ini chaqirish orqali bajaradi — qo'lda hech narsa
+qilish shart emas, faqat 8-qadamdagi `CRON_SECRET`ni sozlab qo'yishni unutmang.
+
+> Eslatma: Vercel Hobby (bepul) tarifida Cron Jobs kuniga 1 marta ishlaydi — bu bizga
+> yetarli. Agar Vercel'da Cron Jobs funksiyasi loyihangizda o'chirilgan bo'lsa, uni
+> Project → Settings → Cron Jobs bo'limidan yoqib qo'ying.
 
 ## Muhim eslatma: tahlil sifatining chegarasi
 

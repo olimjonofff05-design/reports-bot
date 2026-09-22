@@ -78,8 +78,15 @@ export default async function handler(req, res) {
 
     const text = message.text.trim();
 
+    // Telegram buyrug'ining aniq nomini ajratib olamiz ("/notag" va
+    // "/notaglist" kabi bir-biriga o'xshash buyruqlar aralashib
+    // ketmasligi uchun startsWith() emas, aniq mos kelishni tekshiramiz).
+    // "@BotName" qo'shimchasi (guruhda botni chaqirishda qo'shilishi
+    // mumkin) ham hisobga olinadi.
+    const command = text.split(/\s+/)[0].split("@")[0].toLowerCase();
+
     // --- Buyruqlar ---
-    if (text.startsWith("/start")) {
+    if (command === "/start") {
       await sendMessage(
         chatId,
         `Salom! 👋 Meni guruhingizga a'zo qilib qo'ysangiz, "Top mavzu" formatidagi ` +
@@ -95,7 +102,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    if (text.startsWith("/hisobot")) {
+    if (command === "/hisobot") {
       const args = text.replace(/^\/hisobot(@\w+)?/i, "").trim();
       const report = await buildReport(chatId, args);
       await sendMessage(chatId, report);
@@ -103,19 +110,19 @@ export default async function handler(req, res) {
       return;
     }
 
-    if (text.startsWith("/notag")) {
+    if (command === "/notag") {
       await handleExcludeCommand(chatId, message, true);
       res.status(200).send("OK");
       return;
     }
 
-    if (text.startsWith("/tagback")) {
+    if (command === "/tagback") {
       await handleExcludeCommand(chatId, message, false);
       res.status(200).send("OK");
       return;
     }
 
-    if (text.startsWith("/notaglist")) {
+    if (command === "/notaglist") {
       await handleNotagList(chatId);
       res.status(200).send("OK");
       return;

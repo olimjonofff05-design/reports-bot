@@ -1,64 +1,63 @@
-import { getAllChatIds, getGroupMembers, getReportedUserIds } from "./supabase.js";
-import { escapeHtml } from "./telegram.js";
+-- Supabase SQL Editor'da ishga tushiring (mavjud loyihangizga qo'shiladi).
 
-// O'zbekiston (Asia/Tashkent, UTC+5) bo'yicha "bugun"ning boshlanishini va
-// hozirgi vaqtni UTC ISO satr qilib qaytaradi. Vercel funksiyalari UTC'da
-// ishlaydi, shuning uchun bu offset serverning o'z vaqt zonasidan
-// qat'i nazar to'g'ri natija berishi uchun qo'lda hisoblanadi.
-const TASHKENT_OFFSET_MS = 5 * 60 * 60 * 1000;
+create table if not exists daily_reports (
+  id bigint generated always as identity primary key,
+  chat_id bigint not null,
+  message_id bigint,
+  employee_name text,
+  conversations_count integer default 0,
+  topic_text text,
+  raw_text text,
+  reacted boolean not null default false,
+  reaction_types text,
+  created_at timestamptz not null default now()
+);
 
-export function getTashkentTodayRangeUTC() {
-  const now = new Date();
-  const tashkentNow = new Date(now.getTime() + TASHKENT_OFFSET_MS);
-  const y = tashkentNow.getUTCFullYear();
-  const m = tashkentNow.getUTCMonth();
-  const d = tashkentNow.getUTCDate();
-  const tashkentMidnightUTC = new Date(Date.UTC(y, m, d) - TASHKENT_OFFSET_MS);
-  return { from: tashkentMidnightUTC.toISOString(), to: now.toISOString() };
-}
+-- Bot avval deploy qilingan bo'lsa ham (jadval allaqachon mavjud), shu
+-- ALTER'lar yangi ustunlarni xavfsiz qo'shadi — eski ma'lumotlar o'chmaydi.
+alter table daily_reports add column if not exists message_id bigint;
+alter table daily_reports add column if not exists reacted boolean not null default false;
+alter table daily_reports add column if not exists reaction_types text;
+-- Hisobotni yuborgan real Telegram foydalanuvchisi — "kim hisobot
+-- yubormadi" eslatmasi shu ustunga tayanadi (ism matnini emas, aynan
+-- yuboruvchini taqqoslaydi).
+alter table daily_reports add column if not exists telegram_user_id bigint;
 
-// members: group_members qatorlari, reportedUserIds: shu kunda hisobot
-// yuborgan telegram_user_id'lar to'plami. is_excluded=true (masalan
-// rahbarlar) bo'lganlar har doim chiqarib tashlanadi.
-export function findMissingMembers(members, reportedUserIds) {
-  return members.filter((m) => !m.is_excluded && !reportedUserIds.has(m.user_id));
-}
+create index if not exists idx_daily_reports_chat_id on daily_reports (chat_id);
+create index if not exists idx_daily_reports_created_at on daily_reports (created_at desc);
+create index if not exists idx_daily_reports_telegram_user
+  on daily_reports (chat_id, telegram_user_id);
 
-// Har bir odamni Telegram'ning "tap-to-mention" havolasi orqali tag
-// qiladi (tg://user?id=...) — bu username bo'lmagan foydalanuvchilarda
-// ham ishlaydi va odamga bildirishnoma keladi.
-export function formatReminderMessage(missingMembers) {
-  const mentions = missingMembers
-    .map((m) => {
-      const name = escapeHtml(m.full_name || m.username || `id${m.user_id}`);
-      return `<a href="tg://user?id=${m.user_id}">${name}</a>`;
-    })
-    .join(", ");
+-- Reaktsiya kelganda xabarni chat_id + message_id bo'yicha tez topish uchun.
+create unique index if not exists idx_daily_reports_chat_message
+  on daily_reports (chat_id, message_id)
+  where message_id is not null;
 
-  return (
-    `Hurmatli ))) :\n${mentions}\n\n` +
-    `Bugungi kun uchun hisobot yubormadingiz, yubormasangiz tushuntirish xati yozishga majbur bo'lasiz!\n` +
-    `Iltifotli bo'lib yuborib qo'ying iltimos )))`
-  );
-}
+-- ==========================================================================
+-- Guruh a'zolari ro'yxati — "hisobot yubormaganlarga eslatma" funksiyasi
+-- uchun. Bot guruhda birinchi marta xabar yozgan (yoki guruhga qo'shilgan)
+-- har bir odamni shu jadvalga avtomatik yozadi. is_excluded = true bo'lgan
+-- odamlar (masalan rahbarlar) eslatma xabarlarida tag QILINMAYDI — buni
+-- botdagi /notag va /tagback buyruqlari orqali boshqarasiz.
+-- ==========================================================================
+create table if not exists group_members (
+  chat_id bigint not null,
+  user_id bigint not null,
+  username text,
+  full_name text,
+  is_excluded boolean not null default false,
+  updated_at timestamptz not null default now(),
+  primary key (chat_id, user_id)
+);
 
-// Bitta chat uchun: kim hali hisobot yubormaganini aniqlaydi va shularga
-// mo'ljallangan eslatma matnini qaytaradi. Hech kim qolmagan bo'lsa (yoki
-// bu chatda umuman a'zo qayd etilmagan bo'lsa) — null qaytaradi, ya'ni
-// xabar yuborilmaydi.
-export async function buildReminderForChat(chatId) {
-  const members = await getGroupMembers(chatId);
-  if (!members.length) return null;
+create index if not exists idx_group_members_chat_id on group_members (chat_id);
 
-  const { from, to } = getTashkentTodayRangeUTC();
-  const reportedUserIds = await getReportedUserIds(chatId, from, to);
-
-  const missing = findMissingMembers(members, reportedUserIds);
-  if (!missing.length) return null;
-
-  return formatReminderMessage(missing);
-}
-
-export async function getAllChatsWithMembers() {
-  return getAllChatIds();
-}
+-- ==========================================================================
+-- Eski ma'lumotlarni saqlashda joy band qilmasligi uchun: 2 oydan katta
+-- yozuvlarni avtomatik o'chirish. Buni /api/cleanup endpoint'i (Vercel Cron
+-- orqali har kuni chaqiriladi) bajaradi — quyidagi funksiya SQL orqali ham
+-- qo'lda ishga tushirish uchun qoldirilgan.
+-- ==========================================================================
+create or replace function delete_old_daily_reports() returns void as $$
+  delete from daily_reports where created_at < now() - interval '2 months';
+$$ language sql;

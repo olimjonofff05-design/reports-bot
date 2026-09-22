@@ -205,8 +205,22 @@ async function handleExcludeCommand(chatId, message, excluded) {
   // Agar bu odam hali group_members'da bo'lmasa (masalan hech qachon
   // o'zi yozmagan, faqat shu bir marta xabar yuborgan bo'lsa), avval
   // ro'yxatga qo'shib olamiz, shundan keyingina belgilaymiz.
-  await upsertGroupMember({ chatId, userId: target.id, username: target.username, fullName });
-  await setMemberExcluded(chatId, target.id, excluded);
+  const upsertOk = await upsertGroupMember({ chatId, userId: target.id, username: target.username, fullName });
+  const patchOk = upsertOk && (await setMemberExcluded(chatId, target.id, excluded));
+
+  if (!upsertOk || !patchOk) {
+    // Haqiqatda saqlanmagan holatda "✅ saqlandi" deb yolg'on aytmaymiz —
+    // odatda sababi: sql/schema.sql'dagi group_members jadvali Supabase'da
+    // hali yaratilmagan. Aniq xato matni Vercel Logs'da ko'rinadi.
+    await sendMessage(
+      chatId,
+      `❌ Bazaga yozishda xatolik yuz berdi, o'zgarish saqlanmadi. Ehtimol sabab: ` +
+        `Supabase'da <code>group_members</code> jadvali hali yaratilmagan — ` +
+        `<code>sql/schema.sql</code>ning to'liq matnini SQL Editor'da qayta ishga tushiring. ` +
+        `Batafsil xato Vercel loyihangizning Logs bo'limida ko'rinadi.`
+    );
+    return;
+  }
 
   await sendMessage(
     chatId,

@@ -11,18 +11,6 @@
     {
       "path": "/api/cleanup",
       "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/reminder",
-      "schedule": "0 13 * * *"
-    },
-    {
-      "path": "/api/reminder",
-      "schedule": "15 14 * * *"
-    },
-    {
-      "path": "/api/reminder",
-      "schedule": "30 15 * * *"
     }
   ]
 }
